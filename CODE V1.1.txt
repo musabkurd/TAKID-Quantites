@@ -1,0 +1,466 @@
+Option Explicit
+
+' ========================================
+' CLEAN FIFO SOURCE REPORT - CREATE NEW FILE
+' Runs from source workbook without changing it
+' ========================================
+
+Public Sub Clean_FIFO_Source_Report()
+    On Error GoTo ErrorHandler
+
+    Dim wsSource As Worksheet
+    Dim wbClean As Workbook
+    Dim wsClean As Worksheet
+    Dim sourcePath As String
+    Dim sourceName As String
+    Dim distName As String
+    Dim cleanPath As String
+    Dim savedPath As String
+    Dim lastRow As Long
+    Dim lastCol As Long
+    Dim qtyCol As Long
+    Dim statusCol As Long
+    Dim dateCol As Long
+    Dim itemNoCol As Long
+    Dim itemNameCol As Long
+    Dim lotCol As Long
+    Dim itemNoRange As Range
+    Dim lotRange As Range
+    Dim totalRow As Long
+    Dim currentStep As String
+
+    Set wsSource = ActiveSheet
+
+    If ThisWorkbook.Path = "" Then
+        Err.Raise vbObjectError + 1000, , "Please save the source workbook first."
+    End If
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    Application.DisplayAlerts = False
+    Application.Calculation = xlCalculationManual
+
+    currentStep = "Prepare output file name"
+    sourcePath = ThisWorkbook.Path
+    sourceName = GetFileNameWithoutExtension(ThisWorkbook.Name)
+    distName = Trim$(CStr(wsSource.Range("D3").Value))
+
+    If Len(distName) = 0 Then
+        distName = sourceName
+    End If
+
+    cleanPath = BuildOutputPath(sourcePath, distName, GetTakidFileLabel())
+
+    currentStep = "Create clean workbook"
+    Set wbClean = Workbooks.Add(xlWBATWorksheet)
+    Set wsClean = wbClean.Worksheets(1)
+    wsClean.Name = "Clean"
+
+    currentStep = "Copy source sheet into clean workbook"
+    wsSource.UsedRange.Copy
+    wsClean.Range("A1").PasteSpecial Paste:=xlPasteAll
+    Application.CutCopyMode = False
+
+    With wsClean
+        If IsRawSourceLayout(wsClean) Then
+            currentStep = "Delete first row"
+            .Rows(1).Delete
+
+            currentStep = "Delete A to J"
+            .Range("A:J").Delete Shift:=xlToLeft
+
+            currentStep = "Delete unwanted columns"
+            DeleteColumnIfFound wsClean, "Damaged Qty"
+            DeleteColumnIfFound wsClean, "Expiry QTY"
+            DeleteColumnIfFound wsClean, "Item Value"
+        ElseIf Not IsCleanLayout(wsClean) Then
+            Err.Raise vbObjectError + 1008, , "Unsupported source layout. Please run the macro on the original FIFO source sheet."
+        End If
+
+        currentStep = "Move Lot Number"
+        itemNoCol = FindHeaderColumn(wsClean, "Item No")
+        lotCol = FindHeaderColumn(wsClean, "Lot Number")
+
+        If itemNoCol = 0 Then Err.Raise vbObjectError + 1001, , "Column 'Item No' not found."
+        If lotCol = 0 Then Err.Raise vbObjectError + 1002, , "Column 'Lot Number' not found."
+
+        If lotCol <> itemNoCol + 1 Then
+            .Columns(lotCol).Cut
+            .Columns(itemNoCol + 1).Insert Shift:=xlToRight
+            Application.CutCopyMode = False
+        End If
+
+        lastRow = LastUsedRow(wsClean)
+        lastCol = LastUsedCol(wsClean)
+
+        If lastRow < 2 Then Err.Raise vbObjectError + 1003, , "No data found."
+
+        qtyCol = FindHeaderColumn(wsClean, "Item Qty")
+        statusCol = FindHeaderColumn(wsClean, "Expiry Status")
+        dateCol = FindHeaderColumn(wsClean, "Expiry Date")
+        itemNameCol = FindHeaderColumn(wsClean, "Item Name 1")
+
+        If qtyCol = 0 Then Err.Raise vbObjectError + 1004, , "Column 'Item Qty' not found."
+        If statusCol = 0 Then Err.Raise vbObjectError + 1005, , "Column 'Expiry Status' not found."
+        If dateCol = 0 Then Err.Raise vbObjectError + 1006, , "Column 'Expiry Date' not found."
+        If itemNameCol = 0 Then Err.Raise vbObjectError + 1009, , "Column 'Item Name 1' not found."
+
+        Set itemNoRange = .Range(.Cells(2, itemNoCol), .Cells(lastRow, itemNoCol))
+        Set lotRange = .Range(.Cells(2, itemNoCol + 1), .Cells(lastRow, itemNoCol + 1))
+
+        currentStep = "Convert Item No to real numbers"
+        itemNoRange.NumberFormat = "0"
+        itemNoRange.Value = .Evaluate("IF(" & itemNoRange.Address & "<>"""",VALUE(" & itemNoRange.Address & "),"""")")
+
+        currentStep = "Convert Lot Number without warnings"
+        lotRange.NumberFormat = "0000000000"
+        lotRange.Value = .Evaluate("IF(" & lotRange.Address & "<>"""",VALUE(" & lotRange.Address & "),"""")")
+
+        currentStep = "Add filter"
+        If .AutoFilterMode Then .AutoFilterMode = False
+        .Range(.Cells(1, 1), .Cells(lastRow, lastCol)).AutoFilter
+
+        currentStep = "Freeze first row"
+        .Activate
+        ActiveWindow.FreezePanes = False
+        .Range("A2").Select
+        ActiveWindow.FreezePanes = True
+
+        currentStep = "Sort Expiry Status"
+        With .Sort
+            .SortFields.Clear
+            .SortFields.Add Key:=wsClean.Range(wsClean.Cells(2, statusCol), wsClean.Cells(lastRow, statusCol)), _
+                            SortOn:=xlSortOnValues, Order:=xlAscending, DataOption:=xlSortNormal
+            .SetRange wsClean.Range(wsClean.Cells(1, 1), wsClean.Cells(lastRow, lastCol))
+            .Header = xlYes
+            .MatchCase = False
+            .Orientation = xlTopToBottom
+            .Apply
+        End With
+
+        currentStep = "Apply compact formatting"
+        .Cells.WrapText = False
+        .Cells.VerticalAlignment = xlCenter
+        .Cells.HorizontalAlignment = xlCenter
+        .Cells.Font.Name = "Calibri"
+        .Cells.Font.Size = 11
+        .Rows.RowHeight = 15
+
+        .Columns("A").ColumnWidth = 11
+        .Columns("B").ColumnWidth = 11
+        .Columns("C").ColumnWidth = 13
+        .Columns("D").AutoFit
+        If .Columns("D").ColumnWidth < 39 Then .Columns("D").ColumnWidth = 39
+        If .Columns("D").ColumnWidth > 65 Then .Columns("D").ColumnWidth = 65
+        .Columns("E").ColumnWidth = 11
+        .Columns("F").ColumnWidth = 13
+        .Columns("G").ColumnWidth = 14
+
+        .Columns(qtyCol).NumberFormat = "#,##0"
+        .Columns(dateCol).NumberFormat = "d-m-yyyy"
+
+        With .Range(.Cells(1, 1), .Cells(1, lastCol))
+            .Font.Bold = True
+            .Font.Size = 12
+            .RowHeight = 17
+            .Interior.Color = RGB(217, 217, 217)
+        End With
+
+        .Cells(1, qtyCol).Interior.Color = RGB(255, 255, 0)
+        .Cells(1, dateCol).Interior.Color = RGB(255, 255, 0)
+        .Cells(1, statusCol).Interior.Color = RGB(217, 217, 217)
+
+        currentStep = "Add Item Qty total"
+        lastRow = LastUsedRow(wsClean)
+        totalRow = lastRow + 1
+
+        .Cells(totalRow, qtyCol).Formula = "=SUBTOTAL(109," & _
+            .Range(.Cells(2, qtyCol), .Cells(lastRow, qtyCol)).Address(False, False) & ")"
+
+        With .Cells(totalRow, qtyCol)
+            .Interior.Color = RGB(255, 255, 0)
+            .Font.Bold = True
+            .Font.Size = 12
+            .HorizontalAlignment = xlCenter
+            .VerticalAlignment = xlCenter
+            .NumberFormat = "#,##0"
+            .Borders.LineStyle = xlContinuous
+            .Borders.Weight = xlThin
+        End With
+
+        .Rows(totalRow).RowHeight = 18
+
+        If .AutoFilterMode Then .AutoFilterMode = False
+        .Range(.Cells(1, 1), .Cells(lastRow, lastCol)).AutoFilter
+
+        .Range(.Cells(1, 1), .Cells(lastRow, 1)).Borders(xlEdgeLeft).LineStyle = xlContinuous
+        .Range(.Cells(1, 1), .Cells(lastRow, 1)).Borders(xlEdgeLeft).Weight = xlThin
+
+        currentStep = "Highlight .EXP and .BUG suffixes"
+        HighlightPromoSuffixes wsClean, itemNameCol, lastRow
+
+        ActiveWindow.DisplayGridlines = False
+    End With
+
+    currentStep = "Delete previous clean file if it exists"
+    CloseWorkbookIfOpen cleanPath, wbClean
+    If Len(Dir(cleanPath)) > 0 Then Kill cleanPath
+
+    currentStep = "Save clean file"
+    savedPath = TrySaveWorkbook(wbClean, sourcePath, distName)
+    If Len(savedPath) = 0 Then
+        Err.Raise vbObjectError + 1007, , "Could not save the clean workbook with any safe file name."
+    End If
+
+    Application.ScreenUpdating = True
+    Application.EnableEvents = True
+    Application.DisplayAlerts = True
+    Application.Calculation = xlCalculationAutomatic
+    Application.CutCopyMode = False
+
+    MsgBox "Clean file created:" & vbCrLf & savedPath, vbInformation, "Done"
+    Exit Sub
+
+ErrorHandler:
+    Application.ScreenUpdating = True
+    Application.EnableEvents = True
+    Application.DisplayAlerts = True
+    Application.Calculation = xlCalculationAutomatic
+    Application.CutCopyMode = False
+
+    MsgBox "Error during step: " & currentStep & vbCrLf & vbCrLf & Err.Description, vbCritical, "Clean FIFO Source Report"
+End Sub
+
+Private Sub DeleteColumnIfFound(ByVal ws As Worksheet, ByVal headerText As String)
+    Dim colNum As Long
+
+    colNum = FindHeaderColumn(ws, headerText)
+    If colNum > 0 Then ws.Columns(colNum).Delete
+End Sub
+
+Private Sub HighlightPromoSuffixes(ByVal ws As Worksheet, ByVal itemNameCol As Long, ByVal lastDataRow As Long)
+    Dim r As Long
+    Dim cellText As String
+    Dim suffixPos As Long
+
+    For r = 2 To lastDataRow
+        cellText = CStr(ws.Cells(r, itemNameCol).Value)
+
+        If Len(cellText) >= 4 Then
+            ws.Cells(r, itemNameCol).Characters.Font.Color = RGB(0, 0, 0)
+            ws.Cells(r, itemNameCol).Characters.Font.Bold = False
+
+            suffixPos = Len(cellText) - 3
+
+            Select Case UCase$(Right$(cellText, 4))
+                Case ".EXP"
+                    With ws.Cells(r, itemNameCol).Characters(Start:=suffixPos, Length:=4).Font
+                        .Color = RGB(255, 192, 0)
+                        .Bold = True
+                    End With
+                Case ".BUG"
+                    With ws.Cells(r, itemNameCol).Characters(Start:=suffixPos, Length:=4).Font
+                        .Color = RGB(0, 102, 255)
+                        .Bold = True
+                    End With
+            End Select
+        End If
+    Next r
+End Sub
+
+Private Function FindHeaderColumn(ByVal ws As Worksheet, ByVal headerText As String) As Long
+    Dim c As Long
+    Dim lastCol As Long
+    Dim currentText As String
+
+    lastCol = LastUsedCol(ws)
+
+    For c = 1 To lastCol
+        currentText = NormalizeHeaderText(ws.Cells(1, c).Value)
+        If StrComp(currentText, NormalizeHeaderText(headerText), vbTextCompare) = 0 Then
+            FindHeaderColumn = c
+            Exit Function
+        End If
+    Next c
+End Function
+
+Private Function FindHeaderColumnInRow(ByVal ws As Worksheet, ByVal rowNum As Long, ByVal headerText As String) As Long
+    Dim c As Long
+    Dim lastCol As Long
+    Dim currentText As String
+
+    lastCol = LastUsedCol(ws)
+
+    For c = 1 To lastCol
+        currentText = NormalizeHeaderText(ws.Cells(rowNum, c).Value)
+        If StrComp(currentText, NormalizeHeaderText(headerText), vbTextCompare) = 0 Then
+            FindHeaderColumnInRow = c
+            Exit Function
+        End If
+    Next c
+End Function
+
+Private Function LastUsedRow(ByVal ws As Worksheet) As Long
+    Dim lastCell As Range
+
+    Set lastCell = ws.Cells.Find(What:="*", LookIn:=xlFormulas, SearchOrder:=xlByRows, SearchDirection:=xlPrevious)
+
+    If lastCell Is Nothing Then
+        LastUsedRow = 1
+    Else
+        LastUsedRow = lastCell.Row
+    End If
+End Function
+
+Private Function LastUsedCol(ByVal ws As Worksheet) As Long
+    Dim lastCell As Range
+
+    Set lastCell = ws.Cells.Find(What:="*", LookIn:=xlFormulas, SearchOrder:=xlByColumns, SearchDirection:=xlPrevious)
+
+    If lastCell Is Nothing Then
+        LastUsedCol = 1
+    Else
+        LastUsedCol = lastCell.Column
+    End If
+End Function
+
+Private Function GetFileNameWithoutExtension(ByVal fileName As String) As String
+    Dim dotPos As Long
+
+    dotPos = InStrRev(fileName, ".")
+    If dotPos > 0 Then
+        GetFileNameWithoutExtension = Left$(fileName, dotPos - 1)
+    Else
+        GetFileNameWithoutExtension = fileName
+    End If
+End Function
+
+Private Function NormalizeHeaderText(ByVal rawValue As Variant) As String
+    Dim txt As String
+
+    txt = CStr(rawValue)
+    txt = Replace(txt, ChrW(160), " ")
+    txt = Replace(txt, vbTab, " ")
+    txt = Replace(txt, vbCr, " ")
+    txt = Replace(txt, vbLf, " ")
+    txt = Trim$(txt)
+
+    Do While InStr(txt, "  ") > 0
+        txt = Replace(txt, "  ", " ")
+    Loop
+
+    NormalizeHeaderText = txt
+End Function
+
+Private Function IsRawSourceLayout(ByVal ws As Worksheet) As Boolean
+    IsRawSourceLayout = (FindHeaderColumnInRow(ws, 2, "Item ID") > 0 And _
+                         FindHeaderColumnInRow(ws, 2, "Item No") > 0 And _
+                         FindHeaderColumnInRow(ws, 2, "Lot Number") > 0)
+End Function
+
+Private Function IsCleanLayout(ByVal ws As Worksheet) As Boolean
+    IsCleanLayout = (FindHeaderColumnInRow(ws, 1, "Item ID") > 0 And _
+                     FindHeaderColumnInRow(ws, 1, "Item No") > 0 And _
+                     FindHeaderColumnInRow(ws, 1, "Lot Number") > 0)
+End Function
+
+Private Function CleanFileName(ByVal fileName As String) As String
+    Dim badChars As Variant
+    Dim oneChar As Variant
+
+    badChars = Array("\", "/", ":", "*", "?", """", "<", ">", "|", "[", "]", vbCr, vbLf, vbTab)
+
+    CleanFileName = Trim$(fileName)
+
+    For Each oneChar In badChars
+        CleanFileName = Replace(CleanFileName, CStr(oneChar), " ")
+    Next oneChar
+
+    Do While InStr(CleanFileName, "  ") > 0
+        CleanFileName = Replace(CleanFileName, "  ", " ")
+    Loop
+
+    Do While Len(CleanFileName) > 0 And (Right$(CleanFileName, 1) = "." Or Right$(CleanFileName, 1) = " ")
+        CleanFileName = Left$(CleanFileName, Len(CleanFileName) - 1)
+    Loop
+
+    If Len(CleanFileName) = 0 Then
+        CleanFileName = "Distributor"
+    End If
+End Function
+
+Private Function BuildOutputPath(ByVal folderPath As String, ByVal distributorName As String, ByVal suffixText As String) As String
+    Dim safeDistributor As String
+    Dim safeSuffix As String
+    Dim baseName As String
+    Dim maxBaseLen As Long
+
+    safeDistributor = CleanFileName(distributorName)
+    safeSuffix = CleanFileName(suffixText)
+    baseName = safeDistributor & " - " & safeSuffix
+
+    maxBaseLen = 180 - Len(folderPath)
+    If maxBaseLen < 20 Then maxBaseLen = 20
+
+    If Len(baseName) > maxBaseLen Then
+        baseName = Left$(baseName, maxBaseLen)
+        Do While Len(baseName) > 0 And (Right$(baseName, 1) = "." Or Right$(baseName, 1) = " ")
+            baseName = Left$(baseName, Len(baseName) - 1)
+        Loop
+    End If
+
+    If Len(baseName) = 0 Then
+        baseName = "DIST NAME - TAKID"
+    End If
+
+    BuildOutputPath = folderPath & "\" & baseName & ".xlsx"
+End Function
+
+Private Function GetTakidFileLabel() As String
+    GetTakidFileLabel = ChrW(&H62A) & ChrW(&H623) & ChrW(&H6A9) & ChrW(&H6CC) & ChrW(&H62F) & _
+                        " " & _
+                        ChrW(&H643) & ChrW(&H645) & ChrW(&H6CC) & ChrW(&H627) & ChrW(&H62A)
+End Function
+
+Private Function TrySaveWorkbook(ByVal wb As Workbook, ByVal folderPath As String, ByVal distributorName As String) As String
+    Dim candidatePaths(1 To 4) As String
+    Dim i As Long
+    Dim shortName As String
+
+    candidatePaths(1) = BuildOutputPath(folderPath, distributorName, GetTakidFileLabel())
+
+    shortName = CleanFileName(distributorName)
+    If Len(shortName) > 60 Then shortName = Left$(shortName, 60)
+    candidatePaths(2) = BuildOutputPath(folderPath, shortName, GetTakidFileLabel())
+    candidatePaths(3) = BuildOutputPath(folderPath, shortName, "TAKID")
+    candidatePaths(4) = folderPath & "\DIST NAME - TAKID.xlsx"
+
+    On Error Resume Next
+    For i = LBound(candidatePaths) To UBound(candidatePaths)
+        CloseWorkbookIfOpen candidatePaths(i), wb
+        If Len(Dir(candidatePaths(i))) > 0 Then Kill candidatePaths(i)
+
+        Err.Clear
+        wb.SaveAs Filename:=candidatePaths(i), FileFormat:=xlOpenXMLWorkbook
+        If Err.Number = 0 Then
+            TrySaveWorkbook = candidatePaths(i)
+            Exit Function
+        End If
+    Next i
+    On Error GoTo 0
+End Function
+
+Private Sub CloseWorkbookIfOpen(ByVal fullPath As String, ByVal excludeWorkbook As Workbook)
+    Dim wb As Workbook
+
+    For Each wb In Application.Workbooks
+        If Not wb Is excludeWorkbook Then
+            If StrComp(wb.FullName, fullPath, vbTextCompare) = 0 Then
+                Application.DisplayAlerts = False
+                wb.Close SaveChanges:=False
+                Application.DisplayAlerts = True
+                Exit For
+            End If
+        End If
+    Next wb
+End Sub
