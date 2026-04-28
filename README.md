@@ -1,152 +1,120 @@
-# ⚡ TAKID Excel Automation (Global VBA Setup)
+# TAKID Quantities Excel Automation
 
-## 🎯 Goal
+One-click Excel VBA automation for cleaning TAKID quantity confirmation source reports.
 
-Run a VBA macro from **any Excel file** using **one button**, without copying code into each file.
+This project is built for daily warehouse/distributor follow-up work. Open the source Excel file, click the TAKID macro button, and the macro creates a clean confirmation workbook ready to send.
 
----
+## What It Does
 
-## 🧠 What We Built
+- Reads the active Excel workbook.
+- Uses the distributor name from cell `D3`.
+- Creates a clean TAKID result file named:
 
-* Global macro using `PERSONAL.XLSB`
-* One-click button in Excel toolbar
-* Auto-save result file in same folder as source file
-* Clean Excel startup (no unwanted files opening)
+```text
+Distributor Name - تأکید كمیات.xlsx
+```
 
----
+- Keeps only the useful columns:
+  - `Item ID`
+  - `Item No`
+  - `Lot Number`
+  - `Item Name 1`
+  - `Item Qty`
+  - `Expiry Date`
+  - `Expiry Status`
+- Formats the report with clean headers, borders, filters, and readable column widths.
+- Adds a total under `Item Qty`.
+- Highlights `.EXP` and `.BUG` text inside item names so promotion items stand out.
+- Saves the result in the same folder as the source workbook.
 
-## 🛠️ Setup (From Scratch)
+## Main Macro
 
-### 1. Create PERSONAL.XLSB
-
-* Open Excel
-* View → Record Macro
-* Store macro in: **Personal Macro Workbook**
-* Stop recording
-
----
-
-### 2. Add Your Code
-
-* Press `Alt + F11`
-* Open: `VBAProject (PERSONAL.XLSB)`
-* Insert → Module
-* Paste your VBA code
-* Make sure main macro name is:
+Use this macro from Excel:
 
 ```vb
-Public Sub takid()
+Clean_FIFO_Source_Report
 ```
 
----
+The macro is designed to run from `PERSONAL.XLSB`, so it can be used from any opened Excel file.
 
-### 3. Fix Save Location (IMPORTANT)
+## Files In This Repo
 
-Use this logic:
+| File | Purpose |
+| --- | --- |
+| `V1.2.bas` | Current VBA macro code |
+| `CODE V1.1.txt` | Previous readable macro copy |
+| `TEMPLATE.xlsx` | Excel template/reference file |
+| `PERSONAL_MACRO_BACKUP/PERSONAL.XLSB` | Personal macro workbook backup |
+| `PERSONAL_MACRO_BACKUP/Excel Customizations.exportedUI` | Quick Access Toolbar buttons/icons backup |
+| `PERSONAL_MACRO_BACKUP/README.md` | Restore steps for a new laptop |
 
-```vb
-sourcePath = wsSource.Parent.Path
-sourceName = wsSource.Parent.Name
+## Daily Use
+
+1. Open the TAKID source Excel file.
+2. Make sure the source workbook is the active workbook.
+3. Click the TAKID button from the Quick Access Toolbar.
+4. Wait for the success message.
+5. Send the generated `Distributor Name - تأکید كمیات.xlsx` file.
+
+## Install In PERSONAL.XLSB
+
+1. Open Excel.
+2. Unhide `PERSONAL.XLSB` if needed.
+3. Press `Alt + F11`.
+4. Open `VBAProject (PERSONAL.XLSB)`.
+5. Insert a module.
+6. Paste the code from `V1.2.bas`.
+7. Save `PERSONAL.XLSB`.
+8. Hide `PERSONAL.XLSB` again.
+
+Important: when running global macros from `PERSONAL.XLSB`, the macro must work on `ActiveWorkbook`, not `ThisWorkbook`.
+
+## Add The One-Click Button
+
+1. Open Excel.
+2. Go to `File > Options > Quick Access Toolbar`.
+3. Change `Choose commands from` to `Macros`.
+4. Add the TAKID macro.
+5. Click `Modify...`.
+6. Rename it to `TAKID`.
+7. Pick an icon.
+8. Save.
+
+## Restore On A New Laptop
+
+Use the backup folder:
+
+```text
+PERSONAL_MACRO_BACKUP
 ```
 
-This ensures output saves in the **same folder as the source file**, not PERSONAL.
+Restore both files:
 
----
+- `PERSONAL.XLSB`
+- `Excel Customizations.exportedUI`
 
-### 4. Add One-Click Button
+`PERSONAL.XLSB` restores the macros. `Excel Customizations.exportedUI` restores the toolbar buttons/icons.
 
-* File → Options → Quick Access Toolbar
-* Choose commands from: **Macros**
-* Add: `PERSONAL.XLSB!takid`
-* (Optional) Rename + change icon
+Full restore steps are inside:
 
----
-
-### 5. Clean Startup Folder
-
-Go to:
-
-```
-%AppData%\Microsoft\Excel\XLSTART
+```text
+PERSONAL_MACRO_BACKUP/README.md
 ```
 
-Keep ONLY:
+## Required Source Layout
 
+The source file must contain the expected TAKID report headers and distributor name in:
+
+```text
+D3
 ```
-PERSONAL.XLSB
-```
 
-Delete:
+If the source layout changes, update the header detection logic in `V1.2.bas`.
 
-* old result files
-* template files
-* any `.xlsx` files
+## Notes
 
----
+- Keep only `PERSONAL.XLSB` inside the Excel `XLSTART` folder.
+- Do not store random `.xlsx` files in `XLSTART`, because Excel will open them every time.
+- Re-export `Excel Customizations.exportedUI` after changing toolbar buttons.
 
-## ⚠️ Key Concepts
-
-| Concept           | Meaning                             |
-| ----------------- | ----------------------------------- |
-| `ThisWorkbook`    | Where the code is stored (PERSONAL) |
-| `ActiveWorkbook`  | File you're working on              |
-| `wsSource.Parent` | Best reference to source file       |
-
----
-
-## 🚀 Final Workflow
-
-1. Open any Excel file
-2. Go to correct sheet
-3. Click ⚡ TAKID button
-4. Done
-
----
-
-## 💡 What We Learned
-
-* How to use `PERSONAL.XLSB` for global macros
-* Why `ThisWorkbook` caused wrong save location
-* How Excel auto-loads files from XLSTART
-* How to create a reusable automation system
-
----
-
-## 🏁 Result
-
-* 1-click automation
-* Works on any file
-* Clean & professional setup
-
----
-
-## 🔥 Future Upgrades (Optional)
-
-* Auto-detect correct sheet
-* Auto-close result file
-* Add success notification (Arabic/English)
-* Chain multiple macros
-
----
-
-Made by Musab Qasim ⚡
-## PERSONAL.XLSB Quick Setup
-
-Exactly. That workflow is correct.
-
-Your clean version is:
-
-1. Unhide `PERSONAL.XLSB`
-2. Press `Alt + F11`
-3. Paste the VBA into a module in `PERSONAL.XLSB`
-4. Replace `ThisWorkbook` with `ActiveWorkbook` where needed
-5. Save
-6. Hide `PERSONAL.XLSB` again
-7. In Excel Options > Quick Access Toolbar
-8. Change command list to `Macros`
-9. Add the macro you want
-10. Click `Modify...` to change the name and icon
-11. Done
-
-That is the best setup for your daily Excel automation across all files.
-
+Made for Musab's daily stock and warehouse follow-up workflow.
